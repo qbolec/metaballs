@@ -20,10 +20,12 @@
   #overlay h1 { font-size:clamp(24px,5vw,48px); letter-spacing:4px; margin-bottom:12px; opacity:0.9; }
   #overlay p  { font-size:clamp(12px,2vw,18px); color:#aaa; letter-spacing:2px; }
   #overlay.hidden { display:none; }
+  #fps {position: absolute;top:0;left:0;color:white}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="fps"></div>
 <div id="overlay">
   <h1>CARA MIA ADDIO</h1>
   <p>TAP TO BEGIN</p>
@@ -63,7 +65,7 @@ precision highp float;
 #define NUM_BALLS 9
 #define THRESHOLD 0.5
 #define BIG 1e10
-#define STEPS 100
+#define STEPS 16
 
 uniform vec3  uBalls[NUM_BALLS];
 uniform float uR;
@@ -104,18 +106,16 @@ void main() {
   vec3 rd = normalize(vWorldPos - uCamPos);
 
   float bs[NUM_BALLS];
-  float es2[NUM_BALLS];
   float alphas[NUM_BALLS];
   float tStarts[NUM_BALLS];
   float tEnds[NUM_BALLS];
   bool  ballHit[NUM_BALLS];
-
+  
   for (int i = 0; i < NUM_BALLS; i++) {
     vec3 oc = uBalls[i] - ro;
     float b = dot(oc, rd);
     float e2 = dot(oc, oc) - b*b;
     bs[i]     = -b;
-    es2[i]    = e2;
     alphas[i] = 1.0 - e2 / r2;
     float disc = r2 - e2;
     if (disc > 0.0) {
@@ -133,18 +133,31 @@ void main() {
     if (!ballHit[i]) continue;
     for (int endpt = 0; endpt < 2; endpt++) {
       float t0 = (endpt == 0) ? tStarts[i] : tEnds[i];
+      if(bestT<t0) continue;
       bool enabled[NUM_BALLS];
-      float minT = -BIG, maxT = BIG;
+      float maxT = BIG;
       for (int j = 0; j < NUM_BALLS; j++) {
-        enabled[j] = ballHit[j] && tStarts[j] <= t0 && t0 < tEnds[j];
-        if (enabled[j]) { minT = max(minT, tStarts[j]); maxT = min(maxT, tEnds[j]); }
+        if(!ballHit[j]){
+          enabled[j]=false;
+        }else if(tStarts[j]<=t0){
+          if(t0 < tEnds[j]){
+            enabled[j] = t0 < tEnds[j];
+            maxT = min(maxT, tEnds[j]);
+          }else{
+            enabled[j]=false;
+          }
+        }else{
+          maxT = min(maxT, tStarts[j]); 
+          enabled[j]=false;
+        }
       }
-      if (maxT == BIG) continue;
+      maxT = min(maxT, bestT);
       const float stepsInv = 1.0 / float(STEPS);
       for (int step = 0; step < STEPS; ++step) {
-        float t = mix(minT, maxT, float(step) * stepsInv);
+        float t = mix(t0, maxT, float(step) * stepsInv);
         if (evalF(t, bs, alphas, enabled) >= THRESHOLD) {
-          bestT = min(bestT, t); break;
+          bestT = t; 
+          break;
         }
       }
     }
@@ -369,9 +382,13 @@ resize();
 // ── Render loop ───────────────────────────────────────────────────────────────
 let lastFrameTime = null;
 
+let avg_dt=0;
+
 function render(time) {
   const dt = lastFrameTime === null ? 0 : Math.min((time - lastFrameTime) * 0.001, 0.05);
   lastFrameTime = time;
+  avg_dt=avg_dt*0.9+dt*0.1;
+  fps.innerText = `${Math.round(avg_dt * 1000)}ms`;
 
   // Update wanted positions based on music time
   updateWantedPositions();
