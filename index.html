@@ -407,8 +407,8 @@ canvas.addEventListener('touchmove',  e=>{
 function start() {
   overlay.classList.add('hidden');
   bgm.volume=0.6;
-  bgm.play().catch(()=>{});
-  startTime = performance.now();
+  bgm.play().finally(()=>{startTime = performance.now();});
+  
 }
 overlay.addEventListener('click',     start, {once:true});
 overlay.addEventListener('touchend',  start, {once:true});
