@@ -1,0 +1,202 @@
+<!doctype html>
+<script>
+class SturmDebugger {
+    constructor(uR, uBalls, threshold = 0.0001) {
+        this.uR = uR;
+        this.uBalls = uBalls; // Array of {x, y, z}
+        this.THRESHOLD = threshold;
+        this.BIG = 1e10;
+    }
+
+    // Helper for polynomial row normalization to prevent overflow/underflow
+    shrinkRow(rowIdx, v) {
+        let maxVal = 0;
+        const start = rowIdx * 7;
+        for (let i = 0; i < 7; i++) {
+            maxVal = Math.max(maxVal, Math.abs(v[start + i]));
+        }
+        if (maxVal > 0) {
+            for (let i = 0; i < 7; i++) {
+                v[start + i] /= maxVal;
+            }
+        }
+    }
+    signChanges(o, v){
+      let s=0;
+      let lastSign=0.0;
+      for(let r=0;r<6;++r){
+        let w=0.0;
+        for(let i=7;i-->0;){
+          w*=o;
+          w+=v[r*7+i];
+        }
+        if(r>0){
+          let curSign = Math.sign(w);
+          if(curSign!=0.0){
+            if(curSign!=lastSign){
+              s++;
+              lastSign=curSign;
+            }
+          }
+        }else{
+          lastSign=w>0.0?1.0:-1.0;
+        }
+      }
+      return s;
+    }
+
+    solve(uCamPos, vWorldPos) {
+        const r2 = this.uR * this.uR;
+        const invR2 = 1.0 / r2;
+        const ro = uCamPos;
+        
+        // Calculate Ray Direction
+        const rdRaw = {
+            x: vWorldPos.x - uCamPos.x,
+            y: vWorldPos.y - uCamPos.y,
+            z: vWorldPos.z - uCamPos.z
+        };
+        const mag = Math.sqrt(rdRaw.x**2 + rdRaw.y**2 + rdRaw.z**2);
+        const rd = { x: rdRaw.x / mag, y: rdRaw.y / mag, z: rdRaw.z / mag };
+
+        const NUM_BALLS = this.uBalls.length;
+        let tStarts = new Float64Array(NUM_BALLS);
+        let tEnds = new Float64Array(NUM_BALLS);
+        let ballHit = new Array(NUM_BALLS);
+        let a0s = new Float64Array(NUM_BALLS);
+        let a1s = new Float64Array(NUM_BALLS);
+
+        // Pre-calculation phase
+        for (let i = 0; i < NUM_BALLS; i++) {
+            const oc = {
+                x: this.uBalls[i].x - ro.x,
+                y: this.uBalls[i].y - ro.y,
+                z: this.uBalls[i].z - ro.z
+            };
+            const b = oc.x * rd.x + oc.y * rd.y + oc.z * rd.z;
+            const oc_dot_oc = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z;
+            const e2 = oc_dot_oc - b * b;
+            const disc = r2 - e2;
+
+            if (disc > 0.0) {
+                const sq = Math.sqrt(disc);
+                tStarts[i] = b - sq;
+                tEnds[i] = b + sq;
+                ballHit[i] = tEnds[i] > 0.0;
+                a0s[i] = 1.0 - oc_dot_oc * invR2;
+                a1s[i] = 2.0 * b * invR2;
+            } else {
+                tStarts[i] = this.BIG;
+                tEnds[i] = this.BIG;
+                ballHit[i] = false;
+            }
+        }
+
+        let bestT = this.BIG;
+        
+        // Main Loop
+        for (let i = 0; i < NUM_BALLS; i++) {
+            if (!ballHit[i]) continue;
+
+            for (let endpt = 0; endpt < 2; endpt++) {
+                let t0 = (endpt === 0) ? tStarts[i] : tEnds[i];
+                if (bestT < t0) continue;
+
+                let e0 = 0, e1 = 0, e2 = 0, e3 = 0, e4 = 0, e5 = 0, e6 = 0;
+                let maxT = this.BIG;
+                
+                for (let j = 0; j < NUM_BALLS; j++) {
+                    if(!ballHit[j]){
+                    }else if(tStarts[j]<=t0){
+                      if(t0 < tEnds[j]){
+                        maxT = Math.min(maxT, tEnds[j]);
+                      }else{
+                      }
+                    }else{
+                      maxT = Math.min(maxT, tStarts[j]); 
+                    }
+                  
+                    if (ballHit[j] && tStarts[j] <= t0 && t0 < tEnds[j]) {
+                        const a2 = -invR2;
+                        const c0 = t0 * t0 * a2 + t0 * a1s[j] + a0s[j];
+                        const c1 = (t0 * a2 * 2.0 + a1s[j]) * 2.0 * this.uR;
+                        const c2 = -4.0;
+
+                        // Polynomial expansion coefficients
+                        e6 += Math.pow(c2, 3);
+                        e5 += 3.0 * Math.pow(c2, 2) * c1;
+                        e4 += 3.0 * c2 * (c2 * c0 + c1 * c1);
+                        e3 += c1 * (6.0 * c2 * c0 + c1 * c1);
+                        e2 += 3.0 * c0 * (c2 * c0 + c1 * c1);
+                        e1 += 3.0 * c1 * Math.pow(c0, 2);
+                        e0 += Math.pow(c0, 3);
+                    }
+                }
+
+                // Sequence Generation (v is a 2D array flattened: 6 rows x 7 cols)
+                let v = new Float64Array(6 * 7);
+                
+                // P0
+                v[0] = e0 - this.THRESHOLD; v[1] = e1; v[2] = e2; v[3] = e3; v[4] = e4; v[5] = e5; v[6] = e6;
+                // P1 (Derivative)
+                for (let k = 1; k < 7; k++) v[7 + k - 1] = v[k] * k;
+
+                this.shrinkRow(0, v);
+                this.shrinkRow(1, v);
+
+                let prev_deg = 6;
+                while (prev_deg >= 0 && Math.abs(v[prev_deg]) < 1e-10) prev_deg--;
+
+                let last_deg = 5;
+                while (last_deg >= 0 && Math.abs(v[7 + last_deg]) < 1e-10) last_deg--;
+
+                // Sturm Chain Generation via Polynomial Remainder Sequence
+                for (let r = 2; r < 6; r++) {
+                    // Copy coefficients from two rows up
+                    for (let k = 0; k < 7; k++) v[7 * r + k] = v[7 * r - 14 + k];
+                    
+                    if (last_deg < 0) continue;
+
+                    for (let d = prev_deg; d >= last_deg; d--) {
+                        const scale = v[7 * r + d]/v[7 * (r - 1) + last_deg];
+                        
+                        // Synthetic Division step
+                        for (let k = 0; k < last_deg; k++) {
+                            v[7 * r + k + d - last_deg] -= v[7 * (r - 1) + k] * scale;
+                        }
+                        v[7 * r + d] = 0; 
+                    }
+
+                    prev_deg = last_deg;
+                    this.shrinkRow(r, v);
+                    
+                    // Update degree of current row
+                    last_deg--;
+                    while (last_deg >= 0 && Math.abs(v[7 * r + last_deg]) < 1e-10) {
+                        v[7 * r + last_deg] = 0;
+                        last_deg--;
+                    }
+
+                    // Negate for Sturm sequence requirement (P_i = -rem(P_i-2, P_i-1))
+                    for (let k = 0; k <= last_deg; k++) v[7 * r + k] *= -1.0;
+                }
+                 
+                // DEBUG POINT: Inspect v here
+                // console.log(`Sequence at t0=${t0}:`, v);
+                const sc0=this.signChanges(0.0,v);
+                // console.log(sc0);
+                const maxO=(maxT-t0)/(2.0*this.uR);
+                const scMaxO=this.signChanges(maxO,v);
+                // console.log(scMaxO);
+                if(sc0<scMaxO){
+                  console.log("inversion",uCamPos, vWorldPos, sc0, scMaxO, t0, maxO);
+                }
+                if(scMaxO<sc0){
+                  return true;
+                }
+            }
+        }
+        return false;
+    }
+}
+</script>
