@@ -108,10 +108,39 @@ int signChanges(float o, float v[25]){
   float lastSign=0.0;
   for(int r=0;r<5;++r){
     float w=0.0;
-    for(int i=5;i-->0;){
+    for(int i=5-r;i-->0;){
       w*=o;
       w+=v[r*5+i];
     }
+    if(r>0){
+      float curSign = sign(w);
+      // if(abs(curSign)>EPSILON){
+      if(curSign!=0.0){
+        if(curSign!=lastSign){
+          s++;
+          lastSign=curSign;
+        }
+      }
+    }else{
+      lastSign=w>0.0?1.0:-1.0;
+    }
+  }
+  return s;
+}
+int signChanges2(float o, mat4 cor, vec4 bias, float v20){
+  vec4 os=vec4(o,o*o,o*o*o,o*o*o*o);
+  vec4 vals=cor*os+bias;
+  float[5] ws;
+  ws[0]=vals[0];
+  ws[1]=vals[1];
+  ws[2]=vals[2];
+  ws[3]=vals[3];
+  ws[4]=v20;
+
+  int s=0;
+  float lastSign=0.0;
+  for(int r=0;r<5;++r){
+    float w=ws[r];
     if(r>0){
       float curSign = sign(w);
       // if(abs(curSign)>EPSILON){
@@ -142,26 +171,26 @@ vec3 computeNormal(vec3 pos) {
   return normalize(-g);
 }
 
-void cleanRow(int r,inout float v[25]){
-  return;
-  for(int i=0;i<5;++i){
-    if(abs(v[5*r+i])<EPSILON){
-      v[5*r+i]=0.0;
-    } 
-  }
-}
-void shrinkRow(int r,inout float v[25]){
-  return;
-  float ex=0.0;
-  for(int i=0;i<5;++i){
-    ex=max(ex,abs(v[r*5+i]));
-  }
-  if(ex==0.0)return;
-  float inv_ex=1.0/ex;
-  for(int i=0;i<5;++i){
-    v[r*5+i]*=inv_ex;
-  }
-}
+// void cleanRow(int r,inout float v[25]){
+//   // return;
+//   for(int i=0;i<5;++i){
+//     if(abs(v[5*r+i])<EPSILON){
+//       v[5*r+i]=0.0;
+//     } 
+//   }
+// }
+// void shrinkRow(int r,inout float v[25]){
+//   // return;
+//   float ex=0.0;
+//   for(int i=0;i<5;++i){
+//     ex=max(ex,abs(v[r*5+i]));
+//   }
+//   if(ex==0.0)return;
+//   float inv_ex=1.0/ex;
+//   for(int i=0;i<5;++i){
+//     v[r*5+i]*=inv_ex;
+//   }
+// }
 
 void main() {
   float r2 = uR * uR;
@@ -278,15 +307,21 @@ void main() {
       //=  e4v[0]   3e4e1/4   e4e2/2    
       //-  e1e3/16   e2e3/8   3(e3/4)**2  
       
-      shrinkRow(0,v);
-      cleanRow(0,v);
-      shrinkRow(1,v);
-      cleanRow(1,v);
+      v[5*2 + 0] = -e4*v[0]    + e1*e3/16.0;
+      v[5*2 + 1] = -e4*e1*0.75 + e2*e3*0.125;
+      v[5*2 + 2] = -e4*e2*0.5  + e3*e3*(3.0/16.0);
+      v[5*2 + 3] = 0.0;
+      v[5*2 + 4] = 0.0;
 
-      int prev_deg = 4;
-      int last_deg = 3;
+      // shrinkRow(0,v);
+      // cleanRow(0,v);
+      // shrinkRow(1,v);
+      // cleanRow(1,v);
+
+      int prev_deg = 3;
+      int last_deg = 2;
       
-      for(int r=2;r<5;++r){
+      for(int r=3;r<5;++r){
         for(int i=0;i<5;++i){
           v[5*r+i]=v[5*r+i-5*2];
         }
@@ -301,8 +336,8 @@ void main() {
         prev_deg=last_deg;
         // this one, seems to hurt, and create "ring" at intersection of a sphere with metaball, as if no solution could be found
         // cleanRow(r,v);
-        shrinkRow(r,v);
-        cleanRow(r,v);
+        // shrinkRow(r,v);
+        // cleanRow(r,v);
         last_deg--;
         // if we use cleanRow(r,v) then all values <EPSILON were already changed to 0.0
         // while(last_deg>=0 && abs(v[5*r+last_deg])<EPSILON){
@@ -334,8 +369,8 @@ void main() {
           debug1 = vec4(0.0,0.0, 42.0, 67.0);
           debug2 = vec4(float(sc0), float(scMax), maxO, maxT);
         }
-        // fragColor=COLOR_BLUE;
-        // return;
+        fragColor=COLOR_BLUE;
+        return;
       }
       
       if(false){
@@ -370,6 +405,14 @@ void main() {
           }
         }
       }else{
+        // mat4 cor=mat4(v[1],  v[6], v[11], v[16],
+        //               v[2],  v[7], v[12],  0.0,
+        //               v[3] , v[8],   0.0,  0.0,
+        //               v[4],   0.0,   0.0,  0.0);
+
+        // vec4 bias=vec4(v[0], v[5],v[10],v[15]);
+        
+
         float t_s = t0;
         float t_e = maxT;
         for (int step = 0; step < 8; ++step) {
@@ -378,6 +421,7 @@ void main() {
           // The idea here is that we want o to be in [0,1] so that the computation of 6-th power is numerically stable
           float o = (t-t0)*0.5*invR;
           int sco = signChanges(o,v);
+          // int sco = signChanges2(o,cor,bias,v[20]);
           if(sco<sc0){
             t_e = t;
           } else {
@@ -385,6 +429,7 @@ void main() {
           }
         }
         bestT = t_e;
+        continue;
         if(debugTick<2){
           int offset= int(debugTick*12);
           debug0 = vec4(v[offset+0],v[offset+1],v[offset+2],v[offset+3]);
@@ -650,7 +695,6 @@ canvas.addEventListener('mousemove', (e) => {
 // ── Camera ────────────────────────────────────────────────────────────────────
 // let camTheta=1.41, camPhi=0.25, camDist=3;
 let camTheta=1.41, camPhi=0.25, camDist=2;
-// let camTheta=0.04, camPhi=0.776, camDist=2;
 let dragging=false, lastX=0, lastY=0, lastTouches=null;
 
 canvas.addEventListener('mousedown', e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; });
@@ -684,9 +728,9 @@ canvas.addEventListener('touchmove',  e=>{
   lastTouches=t;
 },{passive:false});
 
-  overlay.classList.add('hidden');
 // ── Start on tap ──────────────────────────────────────────────────────────────
 function start() {
+  overlay.classList.add('hidden');
   bgm.volume=0.6;
   bgm.play().finally(()=>{startTime = performance.now();});
   
