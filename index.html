@@ -76,7 +76,7 @@ precision highp float;
 #define BIG 1e10
 #define STEPS 32
 
-#define EPS 1e-6
+#define EPSILON 1e-6
 
 uniform vec3  uBalls[NUM_BALLS];
 uniform float uR;
@@ -114,8 +114,8 @@ int signChanges(float o, float v[25]){
     }
     if(r>0){
       float curSign = sign(w);
-      if(abs(curSign)>EPS){
-      // if(curSign!=0.0){
+      // if(abs(curSign)>EPSILON){
+      if(curSign!=0.0){
         if(curSign!=lastSign){
           s++;
           lastSign=curSign;
@@ -142,14 +142,15 @@ vec3 computeNormal(vec3 pos) {
   return normalize(-g);
 }
 void cleanRow(int r,inout float v[25]){
-  // return;
+  return;
   for(int i=0;i<5;++i){
-    if(abs(v[5*r+i])<EPS){
+    if(abs(v[5*r+i])<EPSILON){
       v[5*r+i]=0.0;
     } 
   }
 }
 void shrinkRow(int r,inout float v[25]){
+  return;
   float ex=0.0;
   for(int i=0;i<5;++i){
     ex=max(ex,abs(v[r*5+i]));
@@ -164,6 +165,7 @@ void shrinkRow(int r,inout float v[25]){
 void main() {
   float r2 = uR * uR;
   float invR2 = 1.0/r2;
+  float invR = 1.0/uR;
   vec3 ro = uCamPos;
   vec3 rd = normalize(vWorldPos - uCamPos);
   const vec4 COLOR_BLUE =vec4(0.0,0.0,1.0,1.0);
@@ -208,7 +210,7 @@ void main() {
   // }
 
   float bestT = BIG;
-  const int VISIBLE_BALLS = 2;
+  const int VISIBLE_BALLS = 9;
   // const int VISIBLE_BALLS = NUM_BALLS;
   for (int i = 0; i < VISIBLE_BALLS; i++) {
     if (!ballHit[i]) continue;
@@ -296,11 +298,14 @@ void main() {
           }
         }
         prev_deg=last_deg;
-        cleanRow(r,v);
+        // this one, seems to hurt, and create "ring" at intersection of a sphere with metaball, as if no solution could be found
+        // cleanRow(r,v);
         shrinkRow(r,v);
         cleanRow(r,v);
         last_deg--;
-        while(last_deg>=0 && abs(v[5*r+last_deg])<EPS){
+        // if we use cleanRow(r,v) then all values <EPSILON were already changed to 0.0
+        // while(last_deg>=0 && abs(v[5*r+last_deg])<EPSILON){
+        while(last_deg>=0 && v[5*r+last_deg]==0.0){
           v[5*r+last_deg]=0.0;
           last_deg--;
         }
@@ -333,11 +338,11 @@ void main() {
       }
       
       const float stepsInv = 1.0 / float(STEPS);
-      for (int step = 0; step < STEPS; ++step) {
+      for (int step = 0; step <= STEPS; ++step) {
         float t = mix(t0, maxT, float(step) * stepsInv);
         // float f = evalF(t, bs, alphas, enabled);
         // The idea here is that we want o to be in [0,1] so that the computation of 6-th power is numerically stable
-        float o = (t-t0)/(2.0*uR);
+        float o = (t-t0)*0.5*invR;
         int sco = signChanges(o,v);
         if(sco<sc0){
         // float p = e0+o*(e1+o*(e2+o*(e3+o*e4)));
@@ -606,7 +611,7 @@ canvas.addEventListener('mousemove', (e) => {
 
 // ── Camera ────────────────────────────────────────────────────────────────────
 // let camTheta=1.41, camPhi=0.25, camDist=3;
-let camTheta=0, camPhi=0, camDist=2;
+let camTheta=0.04, camPhi=0.776, camDist=2;
 let dragging=false, lastX=0, lastY=0, lastTouches=null;
 
 canvas.addEventListener('mousedown', e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; });
