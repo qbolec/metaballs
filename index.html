@@ -137,10 +137,11 @@ vec3 computeNormal(vec3 pos) {
     //  (f(x)**2)' = 2*f(x) * f(x)' = 2*(1-d2/r2) * -2*diff/r2
     // Since we are going to normalize anyway, the constant factor -4.0/r2 is not important
     float u = 1.0 - d2 / r2;
-    if (u > 0.0) g += u * diff;
+    if (u > 0.0) g -= u * diff;
   }
   return normalize(-g);
 }
+
 void cleanRow(int r,inout float v[25]){
   return;
   for(int i=0;i<5;++i){
@@ -337,45 +338,81 @@ void main() {
         // return;
       }
       
-      const float stepsInv = 1.0 / float(STEPS);
-      for (int step = 0; step <= STEPS; ++step) {
-        float t = mix(t0, maxT, float(step) * stepsInv);
-        // float f = evalF(t, bs, alphas, enabled);
-        // The idea here is that we want o to be in [0,1] so that the computation of 6-th power is numerically stable
-        float o = (t-t0)*0.5*invR;
-        int sco = signChanges(o,v);
-        if(sco<sc0){
-        // float p = e0+o*(e1+o*(e2+o*(e3+o*e4)));
-        // if (p >= THRESHOLD) {
-          bestT = t;
-          if(debugTick<2){
-            int offset= int(debugTick*12);
-            debug0 = vec4(v[offset+0],v[offset+1],v[offset+2],v[offset+3]);
-            debug1 = vec4(v[offset+4],v[offset+5],v[offset+6],v[offset+7]);
-            debug2 = vec4(v[offset+8],v[offset+9],v[offset+10],v[offset+11]);
-          }else{
-            debug0 = vec4(v[24],0.0, 0.0, 0.0);
-            float en=0.0;
-            for(int z=9;z-->0;){
-              en*=2.0;
-              if(ballHit[z]){
-                en+=1.0;
+      if(false){
+        const float stepsInv = 1.0 / float(STEPS);
+        for (int step = 0; step <= STEPS; ++step) {
+          float t = mix(t0, maxT, float(step) * stepsInv);
+          // float f = evalF(t, bs, alphas, enabled);
+          // The idea here is that we want o to be in [0,1] so that the computation of 6-th power is numerically stable
+          float o = (t-t0)*0.5*invR;
+          float p = e0+o*(e1+o*(e2+o*(e3+o*e4)));
+          if (p >= THRESHOLD) {
+            bestT = t;
+            if(debugTick<2){
+              int offset= int(debugTick*12);
+              debug0 = vec4(v[offset+0],v[offset+1],v[offset+2],v[offset+3]);
+              debug1 = vec4(v[offset+4],v[offset+5],v[offset+6],v[offset+7]);
+              debug2 = vec4(v[offset+8],v[offset+9],v[offset+10],v[offset+11]);
+            }else{
+              debug0 = vec4(v[24],0.0, 0.0, 0.0);
+              float en=0.0;
+              for(int z=9;z-->0;){
+                en*=2.0;
+                if(ballHit[z]){
+                  en+=1.0;
+                }
               }
+              debug1 = vec4(float(endpt),en, t0, maxT);
+              debug2 = vec4(69.69, p, o, t);
             }
-            debug1 = vec4(float(endpt),en, t0, maxT);
-            debug2 = vec4(float(sc0), float(sco), o, t);
+              // fragColor= vec4(float(scMax)*0.2,0.0,0.0,1.0);
+            break;
           }
-            // fragColor= vec4(float(scMax)*0.2,0.0,0.0,1.0);
-          break;
+        }
+      }else{
+        float t_s = t0;
+        float t_e = maxT;
+        for (int step = 0; step < 8; ++step) {
+          if(t_e - t_s < 0.005)break;
+          float t = (t_s + t_e)*0.5;
+          // The idea here is that we want o to be in [0,1] so that the computation of 6-th power is numerically stable
+          float o = (t-t0)*0.5*invR;
+          int sco = signChanges(o,v);
+          if(sco<sc0){
+            t_e = t;
+          } else {
+            t_s = t;
+          }
+        }
+        bestT = t_e;
+        if(debugTick<2){
+          int offset= int(debugTick*12);
+          debug0 = vec4(v[offset+0],v[offset+1],v[offset+2],v[offset+3]);
+          debug1 = vec4(v[offset+4],v[offset+5],v[offset+6],v[offset+7]);
+          debug2 = vec4(v[offset+8],v[offset+9],v[offset+10],v[offset+11]);
+        }else{
+          debug0 = vec4(v[24],0.0, 0.0, 0.0);
+          float en=0.0;
+          for(int z=9;z-->0;){
+            en*=2.0;
+            if(ballHit[z]){
+              en+=1.0;
+            }
+          }
+          debug1 = vec4(float(endpt),en, t0, maxT);
+          float t = t_e;
+          float o = (t-t0)*0.5*invR;
+          int sco = signChanges(o,v);
+          debug2 = vec4(float(sc0), float(sco), o, t);
         }
       }
     }
   }
 
   if (bestT >= BIG) { discard; }
-  float gr=bestT-1.0;
-  fragColor=vec4(gr,0.0,0.0,1.0);
-  return;
+  // float gr=bestT-1.0;
+  // fragColor=vec4(gr,0.0,0.0,1.0);
+  // return;
   vec3 hitPos = ro + bestT * rd;
   vec3 normal = computeNormal(hitPos);
 
@@ -396,7 +433,8 @@ void main() {
   vec3 col = baseColor * (amb + diff * 0.5)
            + envColor  * (0.2 + fresnel)
            + vec3(1.0) * spec * 0.4
-           + vec3(0.3, 0.5, 1.0) * rim * 0.5;
+           + vec3(0.3, 0.5, 1.0) * rim * 0.5
+           ;
 
   col = mix(vec3(0.0), col, exp(-bestT * 0.04));
   col = pow(clamp(col, 0.0, 1.0), vec3(1.0/2.2));
@@ -611,7 +649,8 @@ canvas.addEventListener('mousemove', (e) => {
 
 // ── Camera ────────────────────────────────────────────────────────────────────
 // let camTheta=1.41, camPhi=0.25, camDist=3;
-let camTheta=0.04, camPhi=0.776, camDist=2;
+let camTheta=1.41, camPhi=0.25, camDist=2;
+// let camTheta=0.04, camPhi=0.776, camDist=2;
 let dragging=false, lastX=0, lastY=0, lastTouches=null;
 
 canvas.addEventListener('mousedown', e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; });
@@ -728,7 +767,7 @@ function render(time) {
       gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, verts.length/3);
     }else{
-      debugUpdate(verts);
+      // debugUpdate(verts);
     }
   }
   gl.bindVertexArray(null);
